@@ -4,7 +4,7 @@ Driver Go do **Unit ENV-IV** (SKU U001-D): SHT40 (0x44) + BMP280 (0x76).
 100% Go, sem C, sem CGo, sem Arduino.
 
 - Módulo: `github.com/nicolasmmb/M5Unit-ENV-IV-Go`
-- Estado: v0.1.0 implementada. Falta validação em hardware.
+- Estado: v0.1.0 publicada e validada em hardware.
 
 ## 1. Hardware
 
@@ -60,13 +60,14 @@ Fake com modelo de registrador dos dois sensores:
 - [x] Núcleo, conversões, CRC, compensação.
 - [x] Testes, contratos, benchmarks.
 - [x] README, BENCHMARKS, Makefile, CI, exemplo.
-- [ ] Validação em hardware (flash + leituras reais).
-- [ ] Publicar e tag `v0.1.0`.
+- [x] Validação em hardware: `Init` ok, serial 208058699, 29,34 °C, 66,7 %RH,
+      94 450 Pa, sem erro em 20 s de leituras a 1 Hz.
+- [x] Publicar e tag `v0.1.0`.
 
 ## 7. Pendências
 
-- [ ] Flash do `examples/read` com o unit, conferir valores plausíveis.
-- [ ] Comparar com termômetro de referência.
+- [x] Flash do `examples/read` com o unit, valores plausíveis.
+- [ ] Comparar com termômetro de referência (precisão absoluta).
 - [ ] Medir um `Read` a 400 kHz.
 - [ ] Expor `SetIIR` se a pressão oscilar demais.
 

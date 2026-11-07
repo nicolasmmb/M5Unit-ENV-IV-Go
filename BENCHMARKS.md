@@ -54,11 +54,22 @@ d.bus.Tx(d.sht, []byte{cmd}, nil)   // the slice escapes: 1 alloc
 It is now built in the fixed buffer of the device (`d.tx[0] = cmd` and
 `d.tx[:1]`). `Pressure` never allocated, which made the bug easy to find.
 
+## Hardware measurements (M5StickC Plus2 + ENV-IV)
+
+| Item | Result |
+|---|---|
+| `Init` on the real unit | OK, BMP280 id 0x58, 24-byte calibration loaded |
+| SHT40 serial (CRC path) | 208058699 |
+| Temperature | 29.34 °C stable to ±5 milli-°C between reads |
+| Humidity | 66.7 %RH stable to ±30 milli-%RH |
+| Pressure | 94 450 Pa repeating within 3 Pa |
+| Errors in 20 s of 1 Hz reads | none |
+
 ## Measurements still missing
 
 | Item | Why it matters |
 |---|---|
-| Real readings against a reference thermometer | Confirms the SHT40 conversion on the unit |
-| BMP280 pressure against a reference | Confirms the calibration path |
+| Real readings against a reference thermometer | Confirms the absolute accuracy |
+| Pressure against a local station reading | Confirms the absolute offset |
 | Timing of a real Read at 400 kHz | The I2C transfer is not in the host number |
 | Heater modes on the unit | They warm the sensor; not tested yet |

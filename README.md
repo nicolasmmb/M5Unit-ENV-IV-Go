@@ -119,11 +119,31 @@ make read PORT=/dev/cu.usbserial-XXXX
 `make agnostic` compiles `New` for `pico` and `arduino-nano33`; CI repeats it in
 the `agnostic` job.
 
+## Hardware results
+
+Verified on an M5StickC Plus2 with a real Unit ENV-IV (`examples/read`, 1 Hz):
+
+```
+SHT40 serial: 208058699
+temperature mC: 29341  humidity mRH: 66705  pressure Pa: 94450
+temperature mC: 29352  humidity mRH: 66690  pressure Pa: 94450
+temperature mC: 29371  humidity mRH: 66672  pressure Pa: 94453
+```
+
+- The serial number is read through the CRC-checked path, so the Sensirion CRC
+  works on real data.
+- Temperature and humidity are stable to a few milli-units between reads.
+- Pressure repeats within 3 Pa.
+- No `ErrCRC`, `ErrBadModel` or `ErrNoCalib` in continuous operation.
+
+Pressure is absolute, so compare it with the local station pressure (a city at
+1100 m shows about 890 hPa).
+
 ## Known gaps
 
 | Gap | Effect | Next step |
 |---|---|---|
-| Not validated on hardware yet | Behaviour on the real SHT40/BMP280 is unproven | Flash `examples/read` with the unit attached |
+| ~~Not validated on hardware~~ | Validated on a real ENV-IV, see below | Done |
 | IIR filter of the BMP280 is off | Noisier pressure than the maximum | Expose `SetIIR` if needed |
 | No interrupt use | The SHT40 and BMP280 can signal data ready | Not wired on the unit |
 | `Read` sleeps inside the lock | A second goroutine waits | Documented; use `Temperature`/`Pressure` separately |
