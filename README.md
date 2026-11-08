@@ -89,8 +89,13 @@ Compare with `errors.Is`.
   float math and `fmt`.
 - The **SHT40 is the temperature reference**. The BMP280 also reports
   temperature, but it is only used inside its own pressure compensation.
-- `Read` sleeps: 10 ms for the SHT40 at high repeatability and up to ~40 ms for
-  the BMP280 at x16 oversampling. Lower `SetOversampling` to go faster.
+- **`Read` pipelines the two sensors.** The BMP280 converts on its own after the
+  forced-mode write, so `Read` starts it first, measures the SHT40 during that
+  time, and only waits the remainder. The elapsed time is measured, not
+  assumed. Default configuration: **44,1 ms** instead of 55,4 ms (−20 %).
+- The sleeps are the datasheet worst case: 10 ms for the SHT40 at high
+  repeatability and ~43 ms for the BMP280 at x2/x16. Lower `SetOversampling`
+  to go faster (x1/x1 gives ~10 ms total).
 - The SHT40 needs 10 ms (high), 5 ms (medium) or 2 ms (low); the heater modes
   need 1.1 s or 110 ms. These are the worst-case datasheet values, used as the
   sleep.
@@ -102,8 +107,9 @@ See [BENCHMARKS.md](BENCHMARKS.md). Host numbers, fake bus:
 
 | Operation | ns/op | allocs/op |
 |---|---:|---:|
+| `Read` (pipelined, default) | 44,1 ms **measured on device** | 0 |
 | `Temperature` (10 ms sleep) | ~11 ms | 0 |
-| `Pressure` (40 ms sleep) | ~44 ms | 0 |
+| `Pressure` (~43 ms sleep) | ~46 ms | 0 |
 | `compensate` (BMP280 math) | 4,1 | 0 |
 | `crc8` | 13,7 | 0 |
 
@@ -125,10 +131,17 @@ Verified on an M5StickC Plus2 with a real Unit ENV-IV (`examples/read`, 1 Hz):
 
 ```
 SHT40 serial: 208058699
-temperature mC: 29341  humidity mRH: 66705  pressure Pa: 94450
-temperature mC: 29352  humidity mRH: 66690  pressure Pa: 94450
-temperature mC: 29371  humidity mRH: 66672  pressure Pa: 94453
+temperature mC: 26682  humidity mRH: 78338  pressure Pa: 95005
+temperature mC: 26682  humidity mRH: 78361  pressure Pa: 95003
+temperature mC: 26674  humidity mRH: 78395  pressure Pa: 95001
 ```
+
+`examples/timing` measured one `Read` on the same board, 60 reads per run:
+
+| Version | Per read | Change |
+|---|---:|---:|
+| sequential (v0.1.0) | 55 388 µs | — |
+| pipelined (this branch) | 44 097 µs | **−11 291 µs (−20,4 %)** |
 
 - The serial number is read through the CRC-checked path, so the Sensirion CRC
   works on real data.

@@ -64,10 +64,27 @@ Fake com modelo de registrador dos dois sensores:
       94 450 Pa, sem erro em 20 s de leituras a 1 Hz.
 - [x] Publicar e tag `v0.1.0`.
 
+## 6.1 Pipeline (perf/pipeline)
+
+`Read` dispara o BMP280 em modo forçado primeiro, mede o SHT40 enquanto ele
+converte, e espera só o que falta. O tempo restante usa o tempo decorrido
+medido, não um sleep fixo.
+
+Medido no hardware (mesma placa e unit, 60 leituras):
+
+| Versão | Por leitura | Ganho |
+|---|---:|---:|
+| sequencial v0.1.0 | 55 388 µs | — |
+| pipeline | 44 097 µs | −11 291 µs (−20,4 %) |
+
+Testes novos: `TestReadOrder` (ordem das operações no fake), `TestReadTotalTime`
+(limite de 13 ms com x1/x1) e `TestHeater` (comandos 0x39/0x32).
+
 ## 7. Pendências
 
 - [x] Flash do `examples/read` com o unit, valores plausíveis.
 - [ ] Comparar com termômetro de referência (precisão absoluta).
+- [x] Medir um `Read`: 44,1 ms a 100 kHz (era 55,4 ms).
 - [ ] Medir um `Read` a 400 kHz.
 - [ ] Expor `SetIIR` se a pressão oscilar demais.
 
