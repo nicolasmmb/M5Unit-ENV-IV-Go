@@ -31,7 +31,16 @@ type fakeBus struct {
 	bmpDead  bool
 	regs     map[byte]byte
 	forcedIn int
+	ops      []byte
 }
+
+// Op markers recorded by the fake, to check the order of a pipelined read.
+const (
+	opBmpCtrl  byte = 1
+	opBmpData  byte = 2
+	opSHTStart byte = 3
+	opSHTRead  byte = 4
+)
 
 // makeSHT builds a response for raw temperature and humidity with valid CRCs.
 func makeSHT(rawT, rawRH uint16) [6]byte {
@@ -85,6 +94,9 @@ func (f *fakeBus) Tx(addr uint16, w, r []byte) error {
 		}
 		if len(w) > 0 {
 			f.shtCmd = w[0]
+			if w[0] != shtSoftReset && w[0] != shtSerial {
+				f.ops = append(f.ops, opSHTStart)
+			}
 			if f.shtCmd == shtSerial {
 				copy(f.shtSN[:], []byte{0x12, 0x34, 0, 0x56, 0x78, 0})
 				f.shtSN[2] = crc8(f.shtSN[0:2])
@@ -94,6 +106,9 @@ func (f *fakeBus) Tx(addr uint16, w, r []byte) error {
 		}
 		if len(r) > 0 {
 			f.shtReads++
+			if f.shtCmd != shtSerial {
+				f.ops = append(f.ops, opSHTRead)
+			}
 			if f.shtCmd == shtSerial {
 				copy(r, f.shtSN[:])
 				return nil
@@ -122,6 +137,7 @@ func (f *fakeBus) Tx(addr uint16, w, r []byte) error {
 				}
 			case bmpDataReg:
 				if len(r) >= bmpDataLen {
+					f.ops = append(f.ops, opBmpData)
 					copy(r, f.bmpData[:])
 					return nil
 				}
@@ -135,6 +151,7 @@ func (f *fakeBus) Tx(addr uint16, w, r []byte) error {
 			f.regs[w[0]] = w[1]
 			if w[0] == bmpCtlReg && w[1]&0b11 == bmpModeForced {
 				f.forcedIn++
+				f.ops = append(f.ops, opBmpCtrl)
 			}
 			return nil
 		}

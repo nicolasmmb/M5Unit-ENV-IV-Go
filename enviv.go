@@ -275,7 +275,10 @@ func (d *Device) Read() (Sample, error) {
 	return d.ReadContext(context.Background())
 }
 
-// ReadContext is Read with cancellation checks between the sensors.
+// ReadContext reads both sensors in one pipeline: the BMP280 forced measurement
+// starts first, the SHT40 measurement runs while the BMP280 converts, and the
+// remaining BMP280 time is waited at the end. With the default configuration
+// that is ~43 ms instead of ~53 ms.
 func (d *Device) ReadContext(ctx context.Context) (s Sample, err error) {
 	if err := ctx.Err(); err != nil {
 		return Sample{}, err
@@ -283,21 +286,42 @@ func (d *Device) ReadContext(ctx context.Context) (s Sample, err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	t, rh, err := d.readSHTLocked(ctx)
-	if err != nil {
+	start := time.Now()
+
+	// The BMP280 converts on its own after the forced-mode write, so start it
+	// first and use its conversion time while the SHT40 is measured.
+	if err := d.bmpStartLocked(); err != nil {
 		return Sample{}, err
 	}
-	s.Temperature, s.Humidity = t, rh
+	if err := d.shtStartLocked(); err != nil {
+		return Sample{}, err
+	}
+
+	time.Sleep(d.prec.delay())
 	if err := ctx.Err(); err != nil {
 		return Sample{}, err
 	}
-	// The BMP280 also reports temperature. The SHT40 is the accurate one, so
-	// the BMP280 value is only used internally for its own compensation.
-	_, p, err := d.readBMPLocked(ctx)
-	if err != nil {
-		return Sample{}, err
+	t, rh, shtErr := d.shtFinishLocked()
+	if shtErr == nil {
+		s.Temperature, s.Humidity = t, rh
 	}
-	s.Pressure = p
+
+	// Wait only what is left of the BMP280 conversion. The elapsed time is
+	// measured, not assumed, so a slow SHT40 read shortens this sleep.
+	if remaining := d.measureTime() - time.Since(start); remaining > 0 {
+		time.Sleep(remaining)
+	}
+	_, p, bmpErr := d.bmpFinishLocked()
+	if bmpErr == nil {
+		s.Pressure = p
+	}
+
+	switch {
+	case shtErr != nil:
+		return Sample{}, shtErr
+	case bmpErr != nil:
+		return Sample{}, bmpErr
+	}
 	return s, nil
 }
 
@@ -343,19 +367,34 @@ func (d *Device) SerialNumber() (uint32, error) {
 	return uint32(d.rx[0])<<24 | uint32(d.rx[1])<<16 | uint32(d.rx[3])<<8 | uint32(d.rx[4]), nil
 }
 
-// readSHTLocked runs one SHT40 measurement. The caller holds the mutex.
+// readSHTLocked runs one complete SHT40 measurement. The caller holds the mutex.
 func (d *Device) readSHTLocked(ctx context.Context) (tMilli, rhMilli int32, err error) {
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
 	}
-	d.tx[0] = d.prec.command()
-	if err := d.bus.Tx(d.sht, d.tx[:1], nil); err != nil {
-		return 0, 0, ErrNotConnected
+	if err := d.shtStartLocked(); err != nil {
+		return 0, 0, err
 	}
 	time.Sleep(d.prec.delay())
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
 	}
+	return d.shtFinishLocked()
+}
+
+// shtStartLocked sends the measurement command. The result is ready after
+// Precision.delay(). The caller holds the mutex.
+func (d *Device) shtStartLocked() error {
+	d.tx[0] = d.prec.command()
+	if err := d.bus.Tx(d.sht, d.tx[:1], nil); err != nil {
+		return ErrNotConnected
+	}
+	return nil
+}
+
+// shtFinishLocked reads and converts the pending measurement. The caller holds
+// the mutex.
+func (d *Device) shtFinishLocked() (tMilli, rhMilli int32, err error) {
 	if err := d.bus.Tx(d.sht, nil, d.rx[:6]); err != nil {
 		return 0, 0, ErrNotConnected
 	}
@@ -377,22 +416,34 @@ func (d *Device) readSHTLocked(ctx context.Context) (tMilli, rhMilli int32, err 
 	return tMilli, rhMilli, nil
 }
 
-// readBMPLocked starts a forced measurement and compensates it. The caller
-// holds the mutex.
+// readBMPLocked runs one complete BMP280 measurement. The caller holds the mutex.
 func (d *Device) readBMPLocked(ctx context.Context) (tempCenti int32, pressPa uint32, err error) {
-	if !d.cal.loaded {
-		return 0, 0, ErrNoCalib
-	}
-	// Forced mode: oversampling from the config, mode bits 01.
-	ctrl := d.osT<<5 | d.osP<<2 | bmpModeForced
-	if err := d.writeReg(d.bmp, bmpCtlReg, ctrl); err != nil {
-		return 0, 0, ErrNotConnected
+	if err := d.bmpStartLocked(); err != nil {
+		return 0, 0, err
 	}
 	time.Sleep(d.measureTime())
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
 	}
+	return d.bmpFinishLocked()
+}
 
+// bmpStartLocked starts a forced measurement. The result is ready after
+// measureTime(). The caller holds the mutex.
+func (d *Device) bmpStartLocked() error {
+	if !d.cal.loaded {
+		return ErrNoCalib
+	}
+	ctrl := d.osT<<5 | d.osP<<2 | bmpModeForced
+	if err := d.writeReg(d.bmp, bmpCtlReg, ctrl); err != nil {
+		return ErrNotConnected
+	}
+	return nil
+}
+
+// bmpFinishLocked reads and compensates the pending measurement. The caller
+// holds the mutex.
+func (d *Device) bmpFinishLocked() (tempCenti int32, pressPa uint32, err error) {
 	d.tx[0] = bmpDataReg
 	if err := d.bus.Tx(d.bmp, d.tx[:1], d.rx[:bmpDataLen]); err != nil {
 		return 0, 0, ErrNotConnected
