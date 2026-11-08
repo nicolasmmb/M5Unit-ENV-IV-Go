@@ -11,8 +11,9 @@
 
 | Benchmark | Scenario | ns/op | allocs/op |
 |---|---|---:|---:|
+| `Read` (pipelined) | both sensors, host sleeps | ~44 ms | 0 |
 | `Temperature` | SHT40 read + 10 ms sleep | ~11 ms | 0 |
-| `Pressure` | BMP280 forced + ~40 ms sleep | ~44 ms | 0 |
+| `Pressure` | BMP280 forced + ~43 ms sleep | ~46 ms | 0 |
 | `Compensate` | BMP280 integer math | 4,1 | 0 |
 | `CRC` | Sensirion CRC of 2 bytes | 13,7 | 0 |
 
@@ -53,6 +54,24 @@ d.bus.Tx(d.sht, []byte{cmd}, nil)   // the slice escapes: 1 alloc
 
 It is now built in the fixed buffer of the device (`d.tx[0] = cmd` and
 `d.tx[:1]`). `Pressure` never allocated, which made the bug easy to find.
+
+## Pipeline: before and after on the device
+
+Same board, same unit, `examples/timing`, 60 reads per run, default config
+(SHT40 high, BMP280 x2/x16):
+
+| Version | avg per read | block total (10 reads) | Change |
+|---|---:|---:|---:|
+| sequential (v0.1.0) | 55 388 µs | 554 ms | — |
+| pipelined (perf/pipeline) | 44 097 µs | 441 ms | **−11 291 µs (−20,4 %)** |
+
+The plan predicted ~43 ms against a ~53 ms baseline. The real baseline was
+55,4 ms (the I2C transfers add ~2,2 ms), so the measured gain is slightly
+better than planned: 44,1 ms, −20,4 %.
+
+Breakdown of the remaining time: 43,2 ms of BMP280 conversion (x2/x16) plus
+about 0,9 ms of I2C. `TestReadTotalTime` keeps the pipeline honest on the host
+with x1/x1, where sequential is ~16,4 ms and the pipeline is ~10 ms.
 
 ## Hardware measurements (M5StickC Plus2 + ENV-IV)
 
